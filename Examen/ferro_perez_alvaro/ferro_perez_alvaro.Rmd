@@ -1,0 +1,238 @@
+---
+title: "Examen_tecnicas_2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Técnicas de Agrupación y Reducción de la dimensión
+## Álvaro Ferro Pérez
+## CUNEF - Febrero de 2019
+
+```{r, echo= FALSE, include=FALSE}
+library(gridExtra)
+library(dplyr)
+require(cluster)
+require(fpc)
+require(factoextra)
+require(dplyr)
+library(dendextend)
+require(ggrepel)
+require(NbClust)
+library(memisc)
+library(haven)
+library(foreign)
+library(dplyr)
+library(factoextra)
+library(cluster)
+library(factoextra)
+require(clustertend)
+library("NbClust")
+library(FactoMineR)
+library(ggplot2)
+
+datos <- read.csv('EGT2010_2017.csv')
+datos_filtrados <- datos[, c(81:93, 3, 4, 6, 21, 72, 112, 110, 109, 80, 151, 146)]
+
+datos_filtrados_noNA <- na.omit(datos_filtrados)
+summary(datos_filtrados_noNA)
+
+primer_df <- datos_filtrados_noNA %>% filter(datos_filtrados_noNA$AÑO <= 2014)
+segundo_df <- datos_filtrados_noNA %>% filter(datos_filtrados_noNA$AÑO > 2014)
+
+set.seed(1234)
+
+primer_150 <- primer_df[sample(nrow(primer_df), 150), ]
+segundo_150 <- segundo_df[sample(nrow(segundo_df), 150),]
+
+rm(datos)
+rm(datos_filtrados)
+rm(datos_filtrados_noNA)
+rm(primer_df)
+rm(segundo_df)
+```
+
+```{r}
+summary(primer_150)
+summary(segundo_150)
+```
+
+Se puede observar a simple vista que hay una una serie de variables con las que no vamos a poder trabajar. Es por ello que deberemos deshacernos de estas o bien transformarlas antes de proseguir nuestro análisis.
+
+En el caso de ingresos, se establece la variable en tipo numérico y se le imputa la media del rango y en el caso de ID procedemos a eliminarla ya que no nos aporta información ninguna.
+
+Deberemos hacer un análisis previo para el estudio de la correlación de la variables, ya que una fuerte correlación entre ellas puede ser un problema para el análisis clúster posterior.
+
+Vamos a proceder a aglomerar algunas variables de nuestro dataset:
+```{r, echo = FALSE, include = FALSE}
+Alojamiento_general = (primer_150$VALORACION_ALOJ + 
+                         primer_150$VALORACION_TRATO_ALOJ + 
+                         primer_150$VALORACION_GASTRONO_ALOJ) /3
+Entorno_general = (primer_150$VALORACION_CLIMA +
+                     primer_150$VALORACION_ZONAS_BANYO + primer_150$VALORACION_PAISAJES + 
+                     primer_150$VALORACION_MEDIO_AMBIENTE + primer_150$VALORACION_TRANQUILIDAD +
+                     primer_150$VALORACION_LIMPIEZA) / 6
+Restaurante_general = (primer_150$VALORACION_CALIDAD_RESTAUR + 
+                         primer_150$VALORACION_OFERTA_GASTR_LOC + 
+                         primer_150$VALORACION_TRATO_RESTAUR +
+                         primer_150$VALORACION_PRECIO_RESTAUR) / 4
+
+library("dummies")
+ingresos = dummy(primer_150$INGRESOS)
+
+i1=ingresos[,1]*((12000+24000)/2)
+i2= ingresos[,2]*((24000 + 36000)/2)
+i3=ingresos[,3]*((36001 +48000)/2)
+i4=ingresos[,4]*((48001 + 60000)/2)
+i5=ingresos[,5]*((60001+72000)/2)
+i6=ingresos[,6]*((72001+84000)/2)
+i7=ingresos[,7]*((84000+12000)/2)
+
+ingresos=(i1+i2+i3+i4+i5+i6+i7)
+head(ingresos)
+
+primer_150_unido <- data.frame(primer_150$IMPRESION, Alojamiento_general, Restaurante_general,Entorno_general,
+                                ingresos, primer_150$EDAD)
+```
+
+```{r, echo=FALSE, include=FALSE}
+Alojamiento_general_dos = (segundo_150$VALORACION_ALOJ + 
+                         segundo_150$VALORACION_TRATO_ALOJ + 
+                         segundo_150$VALORACION_GASTRONO_ALOJ) /3
+Entorno_general_dos = (segundo_150$VALORACION_CLIMA +
+                     segundo_150$VALORACION_ZONAS_BANYO + segundo_150$VALORACION_PAISAJES + 
+                     segundo_150$VALORACION_MEDIO_AMBIENTE + segundo_150$VALORACION_TRANQUILIDAD +
+                     segundo_150$VALORACION_LIMPIEZA) / 6
+Restaurante_general_dos = (segundo_150$VALORACION_CALIDAD_RESTAUR + 
+                         segundo_150$VALORACION_OFERTA_GASTR_LOC + 
+                         segundo_150$VALORACION_TRATO_RESTAUR +
+                         segundo_150$VALORACION_PRECIO_RESTAUR) / 4
+
+library("dummies")
+ingresos = dummy(segundo_150$INGRESOS)
+
+i1=ingresos[,1]*((12000+24000)/2)
+i2= ingresos[,2]*((24000 + 36000)/2)
+i3=ingresos[,3]*((36001 +48000)/2)
+i4=ingresos[,4]*((48001 + 60000)/2)
+i5=ingresos[,5]*((60001+72000)/2)
+i6=ingresos[,6]*((72001+84000)/2)
+i7=ingresos[,7]*((84000+12000)/2)
+
+ingresos=(i1+i2+i3+i4+i5+i6+i7)
+head(ingresos)
+
+segundo_150_unido <- data.frame(segundo_150$IMPRESION, Alojamiento_general, Restaurante_general,Entorno_general,
+                                ingresos, segundo_150$EDAD)
+```
+
+```{r}
+str(primer_150_unido)
+str(segundo_150_unido)
+```
+
+Antes de la realización del análisis cluster se suelen realizar otro tipo de pruebas para comprobar que efectivamente el uso del análisis posterior es correcto. Nos estamos refiriendo al estadístico de Hopkings. El objetivo de esta prueba es comprobar si los datos pueden o no estructurarse en distintos grupos que es lo que posteriormente realizaremos. El resultado óptimo es un resultado cercano a cero.
+
+
+```{r, include=FALSE, echo=FALSE}
+correlaciondata_pca <- cor(primer_150_unido)
+clustend <- get_clust_tendency(correlaciondata_pca, nrow(correlaciondata_pca)-1)
+```
+
+
+```{r}
+clustend$hopkins_stat
+```
+
+
+Ahora si podemos proceder con el análisis clúster. En este caso hemos seleccionado el método K-Means que es el que mejor se adecua a nuestro datos. En el caso de CLARA, no podría utilizarse ya que nuestra muestra no presenta los suficientes elementos y el PAM que, aunque no arroje malos resultados, está especialmente diseñado cuando la muestra contiene Outliers.
+
+
+```{r}
+primer_150_sca <- scale(primer_150_unido)
+segundo_150_sca <- scale(segundo_150_unido)
+
+clust_150.j <- eclust(primer_150_sca, "kmeans", k = 2)
+fviz_silhouette(clust_150.j)
+fviz_nbclust(primer_150_sca, kmeans, method = "silhouette") +
+  ggtitle("Número óptimo de clusters - k medias") +
+  labs(x="Número k de clusters",y="Anchura del perfil promedio")
+
+clust_250.j <- eclust(segundo_150_sca, "kmeans", k = 2)
+fviz_silhouette(clust_250.j)
+fviz_nbclust(segundo_150_sca, kmeans, method = "silhouette") +
+  ggtitle("Número óptimo de clusters - k medias") +
+  labs(x="Número k de clusters",y="Anchura del perfil promedio")
+```
+
+Aunque para ambos conjuntos de datos la mejor decisión sea la elección de  dos clústeres, se puede apreciar que en el primer conjunto las agrupaciones son más perfectas, explicando ambas dimensiones un 55% del total. Mientras que en el segundo caso se produce solapamiento y la explicación de las dimensiones es relativamente menor, 52%.
+
+```{r}
+k2 <- kmeans(primer_150_sca, 2)
+Cluster <- k2$cluster
+primer_150_sca <- cbind(primer_150_sca, Cluster)
+primer_150_sca <- as.data.frame(primer_150_sca)
+
+table(primer_150$SEXO, primer_150_sca$Cluster)
+table(primer_150$ESTANCIA_MAYOR_ISLA_G2, primer_150_sca$Cluster)
+table(primer_150$PAIS_RESID_AGRUP, primer_150_sca$Cluster)
+table(primer_150$INGRESOS,primer_150_sca$Cluster)
+table(primer_150$EDAD, primer_150_sca$Cluster)
+```
+
+Podemos observar que la distribución de la nacionalidad, isla de mayor estancia, edad, sexo e ingresos está, en general, agrupada mejor en el primer clúster, teniendo el segundo menos observaciones de estas variables previamente especificadas.
+
+Cabe prestar especial atención a la isla de mayor estancia, ya que lanzarote tiene bastante diferencia con respecto a las otras islas. En cuanto a ingresos vemos que las rentas medias-altas son bastante más escasas las observaciones.
+
+```{r}
+k2_segundo <- kmeans(segundo_150_sca, 2)
+Cluster <- k2_segundo$cluster
+segundo_150_sca <- cbind(primer_150_sca, Cluster)
+segundo_150_sca <- as.data.frame(primer_150_sca)
+
+table(segundo_150$SEXO, segundo_150_sca$Cluster)
+table(segundo_150$ESTANCIA_MAYOR_ISLA_G2, segundo_150_sca$Cluster)
+table(segundo_150$PAIS_RESID_AGRUP, segundo_150_sca$Cluster)
+table(segundo_150$INGRESOS,segundo_150_sca$Cluster)
+table(segundo_150$EDAD, segundo_150_sca$Cluster)
+```
+
+Llama la atención que las personas que poseen más ingresos y tienen un rango de edad menor se incluyen dentro del segundo grupo. Las valores generales de restauración, alojamiento y entorno no son relevantes para incluirlos en un cluster u otro.
+
+
+## Pregunta 5
+
+```{r, echo=TRUE, include = TRUE}
+k2_primero <- kmeans(primer_150_sca, 2)
+primer_150_unido$Centroides <- k2_primero$cluster
+
+
+primer_150_unido %>% 
+  group_by(Centroides) %>% 
+  dplyr::summarize(conteo = n(), media_ingresos = mean(ingresos),media_edad = mean(primer_150$EDAD),media_Alojamiento_general = mean(Alojamiento_general),
+                   media_Restaurante_general= mean(Restaurante_general),media_entorno = mean(Entorno_general))
+```
+
+```{r}
+k2_segundo <- kmeans(segundo_150_sca, 2)
+segundo_150_unido$Centroides <- k2_segundo$cluster
+
+
+segundo_150_unido %>% 
+  group_by(Centroides) %>% 
+  dplyr::summarize(conteo = n(), media_ingresos = mean(ingresos),media_edad = mean(segundo_150$EDAD),media_Alojamiento_general = mean(Alojamiento_general),
+                   media_Restaurante_general= mean(Restaurante_general),media_entorno = mean(Entorno_general))
+```
+
+
+En el año 2010
+
+Basándonos en las estadísticas por conjunto de datos y agrupación en cluster, podemos concluir que en general la mayoría de observaciones pertenecen al primer clúster cuya media de edad es más alta que en el segundo. El perfil de ingresos está también más elevado. En la agrupación dos en general el promedio de edad es más reducido y por ello los ingresos también. La idea de turismo de este conjunto de personas es diferente a la del primero.
+
+En el año 2014
+El turismo puede haberse vuelto más conservador, habiendose reducido la diferencias en ingresos y rangos de edad. En general y a modo de resumen, sí existen diferencias en quienes hacen la valoración puesto que el nivel de ingresos y el rango de edad determina las condiciones en las que se viaja.
+

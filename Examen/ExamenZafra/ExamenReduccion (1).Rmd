@@ -1,0 +1,338 @@
+---
+title: "Examen final Reducción"
+author: "Alvaro Ferro"
+date: "29 de Enero de 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, include=FALSE}
+library(dplyr) 
+require(cluster)
+require(fpc)
+require(factoextra)
+require(dplyr)
+library(dendextend)
+require(ggrepel)
+require(NbClust)
+library(memisc)
+library(haven)
+library(foreign)
+library(dplyr)
+library(factoextra)
+library(cluster)
+library(factoextra)
+require(clustertend)
+library("NbClust")
+library(FactoMineR)
+library(ggplot2)
+library(LPCM)
+```
+
+
+
+```{r, include=FALSE, echo=FALSE}
+##REalizamos la carga de datos
+datos <- read.csv('EGT2010_2017.csv')
+str(datos)
+#Realizamos el tratamiento de datos necesarios para el examen.
+datos_filtrados <- datos[, c(81:93, 3, 4, 6, 21, 72, 112, 110, 109, 80, 151, 146)]
+which(is.na(datos_filtrados))
+
+summary(datos_filtrados)
+
+datos_filtrados_noNA <- na.omit(datos_filtrados)
+summary(datos_filtrados_noNA)
+
+primer_df <- datos_filtrados_noNA %>% filter(datos_filtrados_noNA$AÑO <= 2014)
+segundo_df <- datos_filtrados_noNA %>% filter(datos_filtrados_noNA$AÑO > 2014)
+
+set.seed(1234)
+
+primer_150 <- primer_df[sample(nrow(primer_df), 150), ]
+segundo_150 <- segundo_df[sample(nrow(segundo_df), 150),]
+
+rm(datos)
+rm(datos_filtrados)
+rm(datos_filtrados_noNA)
+rm(primer_df)
+rm(segundo_df)
+
+## Vamos a proceder a realizar la limpieza del dataframe
+str(primer_150)
+
+## Vamos a crear otro DF para realizar los clusters ##
+primer_150_limpio <- primer_150[, c(-15, -16, -18, -21, -23)]
+str(primer_150_limpio)
+```
+
+
+
+```{r, include=FALSE, echo=FALSE}
+
+
+#Reestructuracion de ingresos
+
+library("dummies")
+ingresos = dummy(primer_150$INGRESOS)
+
+i1=ingresos[,1]*((12000+24000)/2)
+i2=ingresos[,2]*((24000 + 36000)/2)
+i3=ingresos[,3]*((36001 +48000)/2)
+i4=ingresos[,4]*((48001 + 60000)/2)
+i5=ingresos[,5]*((60001+72000)/2)
+i6=ingresos[,6]*((72001+84000)/2)
+i7=ingresos[,7]*((84000+12000)/2)
+
+ingresos=(i1+i2+i3+i4+i5+i6+i7)
+head(ingresos)
+
+
+primer_150_limpio$INGRESOS = ingresos
+
+rownames(primer_150_limpio) <- primer_150_limpio$ID
+primer_150_limpio$ID <- NULL
+
+primer_150_limpio_sc <- scale(primer_150_limpio)
+primer_150_limpio_sc
+
+Alojamiento_general = (primer_150$VALORACION_ALOJ + 
+                         primer_150$VALORACION_TRATO_ALOJ + 
+                         primer_150$VALORACION_GASTRONO_ALOJ) /3
+Entorno_general = (primer_150$VALORACION_CLIMA +
+                     primer_150$VALORACION_ZONAS_BANYO + primer_150$VALORACION_PAISAJES + 
+                     primer_150$VALORACION_MEDIO_AMBIENTE + primer_150$VALORACION_TRANQUILIDAD +
+                     primer_150$VALORACION_LIMPIEZA) / 6
+Restaurante_general = (primer_150$VALORACION_CALIDAD_RESTAUR + 
+                         primer_150$VALORACION_OFERTA_GASTR_LOC + 
+                         primer_150$VALORACION_TRATO_RESTAUR +
+                         primer_150$VALORACION_PRECIO_RESTAUR) / 4
+
+str(Alojamiento_general)
+
+
+primer_150_unido <- data.frame(primer_150$IMPRESION, Alojamiento_general, Restaurante_general,Entorno_general,
+                                ingresos, primer_150$EDAD)
+primer_150_sca <- scale(primer_150_unido)
+#analisis de componentes principales necesita que estÃ© todo en una misma magnitud
+str(primer_150_unido)
+
+
+library(factoextra)
+library(FactoMineR)
+library(dplyr)
+#Analizamos las estructuras de los dos datas
+str(primer_150)
+str(segundo_150)
+
+
+str(primer_150_unido)
+
+```
+
+```{r,include=T, echo=T}
+############## Inspeccion ##############
+
+graf.datos <-ggplot(as.data.frame(primer_150_limpio), aes(x=VALORACION_TRATO_ALOJ, y=VALORACION_ALOJ)) +
+  geom_point() +
+  geom_density_2d()
+# Generamos un conjunto aleatorio de datos para las dos variables
+set.seed(1234)
+n = nrow(primer_150_limpio)
+random_df = data.frame(
+  x = as.integer(runif(nrow(primer_150_limpio), min(primer_150_limpio$VALORACION_ALOJ), max(primer_150_limpio$VALORACION_ALOJ))),
+  y = as.integer(runif(nrow(primer_150_limpio), min(primer_150_limpio$VALORACION_TRATO_ALOJ), max(primer_150_limpio$VALORACION_TRATO_ALOJ))))
+# Colocamos en objeto para representación posterior
+graf.aleat=ggplot(random_df, aes(x, y)) + geom_point() + labs(x="ALOJAMIENTO",y="TRATO ALOJAMIENTO") + stat_density2d(aes(color = ..level..))
+grid.arrange(graf.datos , graf.aleat, nrow=1, ncol=2)
+
+```
+
+
+```{r,include=FALSE, echo=FALSE}
+##Defino las dos correlaciones
+correlaciondata_pca <- cor(primer_150_unido)
+correlacion_data_pca_2 <- cor(primer_150_limpio)
+
+```
+
+Ahora vamos a realizar las Pruebas previas al análisis de componentes principales.
+```{r,include=FALSE, echo=FALSE}
+##Esfericidad de bartlet
+library(psych)
+#que todas las varianzas de una poblacio son iguales H0, buscamos rechazarla, este no es robusto ante incrementos del tama?o muestral
+cortest.bartlett(correlaciondata_pca, n = nrow(primer_150)) ##La prueba de esfericidad de Bartlett contrasta la hipÃ³tesis nula de que la matriz de correlaciones es una matriz identidad, en cuyo caso no existirÃ�an correlaciones significativas entre las variables y el modelo factorial no serÃ�a pertinente.## Si Sig. (p-valor) < 0.05 aceptamos H0 (hipÃ³tesis nula) > se puede aplicar el anÃ¡lisis.
+#la matriz de covarianzas lo que hace es ver como influye en el total una variable, si tiene un coeficiente alto necesariamente ser? importante en el an?lisis.
+cov(primer_150_sca)
+
+det(correlaciondata_pca)
+
+##KMO es una prueba estadistica la cual es una MSA, medida de adecuacion muestral, definicion(compara los valores de las correlaciones entre las variables y sus correlaciones parciales si el indice Kmo esta proximo a 1 el ACP se puede hacer si es proximo a 0, el ACP no serÃ¡ relevante)
+KMO(correlaciondata_pca)## definicion de kmo, como se puede observar en el kmo todos con mayores de 0.7, por tanto 
+##AnÃ¡lisis de componentes principales. Cuanto mÃ¡s cerca de 1 tenga el valor obtenido del test KMO, implica que la relaciÃ³n entres las variables es alta. Si KMO â¥ 0.9
+library(missMDA)
+
+acp <- PCA(primer_150_unido, scale.unit = T) ## esta nos arroja resultados mas precisos. Nos retorna la dv estandar de cada uno de los componentes principales , los cuales coinciden con los autovalores de los componentes principales, y nos retorna el conjunto de componentes principales
+##Utilizamos imputePCA, para eliminar los valores faltantes.
+
+
+fviz_eig(acp, addlabels = TRUE, hjust = 0) + labs(title("Representacion"), x = "Dimensiones", y = "Porcentaje de v explicada") + theme_classic()
+
+##Cual es la proporcion de varianza explicada por cada de una de estos componente y despues de ello elegir cual es el que nos vamos a quedar
+
+summary(acp) ##Mirar proportion of variance  
+acp$eig
+
+##Nos quedamos con los dos primeros autovalores,regla de Kaiser,
+
+```
+
+Plot de la distancia
+```{r}
+#Obtenemos las distancias del anterior DF a través de Pearson
+qdist.pearson <- get_dist(primer_150_unido, stand = T, method = 'pearson')
+qdist.manhattan <- get_dist(primer_150_limpio_sc, stand = T, method = 'manhattan')
+qdist.mink <- get_dist(primer_150_limpio_sc, stand = T, method = 'minkowski')
+str(qdist.pearson)
+summary(qdist.pearson)
+
+dist.cor <- as.dist(1 - correlaciondata_pca)
+round(as.matrix(dist.cor),  2)
+
+#Realizamos la representación gráfica.
+
+as.matrix(as.dist(qdist.pearson))
+```
+
+```{r,include=TRUE, echo=TRUE}
+library(gridExtra)
+fviz_dist(qdist.mink, lab_size = 5)
+```
+
+```{r}
+d <- dist(primer_150_sca ,method = "euclidean") # distance matrix
+fit <- hclust(d, method="ward.D2")
+
+
+plot(fit, cex = 0.6, hang = -1, main="Dendrograma - hclust")
+rect.hclust(fit, k=5, border = 3:6)
+```
+
+```{r,include=TRUE, echo=TRUE}
+#Ahora vamos a realizar el cluster, KMEANS DE data frame sin agrupar
+viajeros.eclust <- eclust(primer_150_limpio, FUNcluster = 'kmeans', stand = T, hc_metric = 'euclidean',  nstart = 25)
+viajeros.eclust.j <- eclust(primer_150_sca, "kmeans", k = 2)
+fviz_silhouette(viajeros.eclust.j)
+fviz_silhouette(viajeros.eclust)
+
+```
+
+```{r,include=TRUE, echo=TRUE}
+
+fviz_nbclust(primer_150_sca, kmeans, method = "silhouette") +
+  ggtitle("Número óptimo de clusters - k medias") +
+  labs(x="Número k de clusters",y="Anchura del perfil promedio")
+```
+
+
+```{r,include=TRUE, echo=TRUE}
+k2 <- kmeans(primer_150_sca, centers = 2, nstart = 25)
+k3 <- kmeans(primer_150_sca, centers = 3, nstart = 25)
+k4 <- kmeans(primer_150_sca, centers = 4, nstart = 25)
+k5 <- kmeans(primer_150_sca, centers = 5, nstart = 25)
+k6 <- kmeans(primer_150_sca, centers = 6, nstart = 25)
+k7 <- kmeans(primer_150_sca, centers = 7, nstart = 25)
+k8 <- kmeans(primer_150_sca, centers = 8, nstart = 25)
+
+p1 <- fviz_cluster(k2, geom = 'point', data = primer_150_sca) + ggtitle('K = 2')
+p2 <- fviz_cluster(k3, geom = 'point', data = primer_150_sca) + ggtitle('K = 3')
+p3 <- fviz_cluster(k4, geom = 'point', data = primer_150_sca) + ggtitle('K = 4')
+p4 <- fviz_cluster(k5, geom = 'point', data = primer_150_sca) + ggtitle('K = 5')
+p5 <- fviz_cluster(k6, geom = 'point', data = primer_150_sca) + ggtitle('K = 6')
+p6 <- fviz_cluster(k7, geom = 'point', data = primer_150_sca) + ggtitle('K = 7')
+p7 <- fviz_cluster(k8, geom = 'point', data = primer_150_sca) + ggtitle('K = 8')
+
+library(gridExtra)
+require(ggrepel)
+grid.arrange(p1, p2, p3, p4, p5, nrow = 2)
+```
+
+
+```{r}
+primer_150_unido$Centroides <- k2$cluster
+
+primer_150_unido %>% 
+  group_by(Centroides) %>% 
+  dplyr::summarize(conteo = n(), media_ingresos = mean(ingresos),media_edad = mean(primer_150.EDAD),media_Alojamiento_general = mean(Alojamiento_general),
+                   media_Restaurante_general= mean(Restaurante_general),media_entorno = mean(Entorno_general))
+```
+
+```{r}
+primer
+```
+
+
+```{r,include=TRUE, echo=TRUE}
+library(rgl)
+cl <- kmeans(primer_150_sca,3)
+factorKmeans <- as.factor(cl$cluster)
+pc <- princomp(primer_150_unido, cor=TRUE, scores=TRUE)
+plot3d(pc$scores, col= factorKmeans, main="k-means clusters")
+```
+
+```{r,include=TRUE, echo=TRUE}
+library(rgl)
+cl <- kmeans(primer_150_sca,4)
+factorKmeans <- as.factor(cl$cluster)
+pc <- princomp(primer_150_unido, cor=TRUE, scores=TRUE)
+plot3d(pc$scores, col= factorKmeans, main="k-means clusters")
+```
+
+```{r,include=TRUE, echo=TRUE}
+## No podemos realizar CLARA por la cantidad de datos de los que disponemos
+require(cluster)
+viajeros_esp.clara=clara(primer_150_limpio, 2)
+require(factoextra)
+fviz_cluster(viajeros_esp.clara, stand = TRUE, geom = "point", pointsize = 1)
+```
+
+
+```{r}
+Cluster <- k2$cluster
+primer_150_sca <- cbind(primer_150_sca, Cluster)
+primer_150_sca <- as.data.frame(primer_150_sca)
+
+table(primer_150$AEROPUERTO, primer_150_sca$Cluster)
+table(primer_150$SEXO, primer_150_sca$Cluster)
+table(primer_150$ESTANCIA_MAYOR_ISLA_G2, primer_150_sca$Cluster)
+table(primer_150$PAIS_RESID_AGRUP, primer_150_sca$Cluster)
+```
+
+## Resumen Ejecutivo
+
+
+
+| Clúster - Agrupación | Número de grupos |
+|:--------------------:|:----------------:|
+|        Grupo 1       |        25        |
+|        Grupo 2       |        68        |
+|        Grupo 3       |        32        |
+
+
+
+|     |    PVP    | CILINDRO |    CC   | POTENCIA |   RPM   |   PESO  | CONSUMO90 | VELOCIDAD |
+|:---:|:---------:|:--------:|:-------:|:--------:|:-------:|:-------:|:---------:|:---------:|
+|  G1 | 6.747.792 |     6    | 3528.36 |  178.32  | 4746.40 | 1958.04 |   10.64   |   172.56  |
+|  G2 | 3.757.070 |     4    | 2587.58 |  105.88  | 4282.35 | 1794.05 |    8.60   |   144.50  |
+|  G3 | 2.386.929 |     4    | 1783.18 |   93.03  | 5437.50 | 1210.03 |    8.08   |   145.34  |
+
+
+
+|         | Territorio | Nº casas | Nº plazas (A) | Nº vehículos (B) | Diferencia (A-B) |
+|:-------:|:----------:|:--------:|:-------------:|:----------------:|:----------------:|
+| Grupo 1 |    Suiza   |     2    |       30      |        25        |         5        |
+| Grupo 2 |   Francia  |     6    |       90      |        68        |        22        |
+| Grupo 3 |   Italia   |     2    |       30      |        32        |        -2        |

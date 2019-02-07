@@ -287,6 +287,10 @@ set.seed(123)
 pam_clusters <- pam(x = cochesescalados, k = 6, metric = "manhattan")
 pam_clusters$medoids
 
+km_clusters <- kmeans(cochesescalados, 6)
+km_clusters$cluster
+km_clusters$centers
+
 fviz_cluster(object = pam_clusters, data = datos, ellipse.type = "t",
              repel = TRUE) +
   theme_bw() +
